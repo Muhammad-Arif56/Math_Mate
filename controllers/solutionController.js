@@ -1,19 +1,18 @@
-const userModel = require('../models/userModel.js')
+const userModel = require('../models/userModel');
 const fs = require('fs');
 const Tesseract = require('tesseract.js');
 const WolframAlpha = require('@wolfram-alpha/wolfram-alpha-api');
-const Solution = require('../models/solutionModel.js');
+const Solution = require('../models/solutionModel');
+const multer = require('multer');
 require('dotenv').config();
-const multer = require('multer'); // Ensure multer is also required
-const appId = process.env.WOLFRAM_ALPHA_APP_ID
-const waApi = new WolframAlpha(appId);
-console.log("🚀 ~ waApi:", waApi)
 
+const appId = process.env.WOLFRAM_ALPHA_APP_ID;
+const waApi = WolframAlpha(appId);
 
 // Set up multer for file uploads
 const upload = multer({
   dest: 'uploads/',
-  limits: { fileSize: 1000000 }, // adjust the file size limit as needed
+  limits: { fileSize: 1000000 }, // Adjust the file size limit as needed
   fileFilter(req, file, cb) {
     if (!file.originalname.match(/\.(jpg|jpeg|png|gif)$/)) {
       return cb(new Error('Only image files are allowed!'));
@@ -21,57 +20,64 @@ const upload = multer({
     cb(null, true);
   }
 });
-console.log("*****************");
 
 const solveQuestion = async (req, res) => {
-try {
- // Check if user exists
- const user = await userModel.findById(req.user.id);
- if (!user) {
-   return res.status(404).json({ error: "User not found" });
- }
+  try {
+    // Check if user exists
+    const user = await userModel.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
 
-  const imagePath = req.file.path;
-  // Use Tesseract.js to extract text from image
-  Tesseract.recognize(imagePath, 'eng')
-    .then(({ data: { text } }) => {
-      // Use Wolfram Alpha API to solve the problem
-      waApi.getFull(text)
-        .then((queryresult) => {
-          // Create a new solution document
-          const solution = new Solution({
-            question: text,
-            result: queryresult
-          });
-          console.log(solution);
-          // Save the solution to MongoDB
-          solution.save()
-            .then(() => {
-              res.json(queryresult);
-            })
-            .catch((err) => {
-              res.status(500).send(err);
-            });
-        })
-        .catch((err) => {
-          res.status(500).send(err);
-        });
-    })
-    .catch((err) => {
-      res.status(500).send(err);
-    })
-    .finally(() => {
-      // Clean up the uploaded file
-      fs.unlink(imagePath, (err) => {
-        if (err) console.error(err);
-      });
+    const imagePath = req.file.path;
+
+    console.log(`Processing image: ${imagePath}`);
+
+    // Use Tesseract.js to extract text from image with configurations
+    const result = await Tesseract.recognize(imagePath, 'eng', {
+      logger: m => console.log(m), // Add Tesseract.js logging
+      tessedit_char_whitelist: '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ+-*/=()%', // Whitelist common math symbols
+      preserve_interword_spaces: 1 // Preserve spaces between words
     });
-}catch (error) {
-  console.log(error);
-  return res.status(500).json({ error: "Internal server error" });
+
+    const extractedText = result.data.text;
+    console.log("Extracted Text:", extractedText);
+
+    // Clean and format the extracted text
+    const cleanedText = extractedText.replace(/\n/g, ' ').trim();
+    console.log("Cleaned Text:", cleanedText);
+
+    if (!cleanedText) {
+      return res.status(400).json({ error: "Could not extract text from image." });
+    }
+
+    // Use Wolfram Alpha API to solve the problem
+    const queryresult = await waApi.getFull(cleanedText);
+
+    // Log the query result for debugging
+    console.log("Query Result:", queryresult);
+
+    // Create a new solution document
+    const solution = new Solution({
+      question: cleanedText,
+      result: queryresult,
+      userId: req.user.id
+    });
+
+    // Save the solution to MongoDB
+    await solution.save();
+
+    res.json(queryresult);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send(err);
+  } finally {
+    // Clean up the uploaded file
+    fs.unlink(req.file.path, (err) => {
+      if (err) console.error(err);
+    });
   }
 };
-console.log("##################################");
 
 
 
@@ -81,6 +87,7 @@ const getAllQuestions = async (req, res)=>{
 try{
   // Check if user exists
  const user = await userModel.findById(req.user.id);
+ console.log("🚀 ~ getAllQuestions ~ user:", req.user.id)
  if (!user) {
    return res.status(404).json({ error: "User not found" });
  }
@@ -97,9 +104,6 @@ try{
  return res.status(500).json({ error: "Internal server error" });
 }
 }
-
-
-
 
 
 

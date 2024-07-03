@@ -4,9 +4,12 @@ const Schema = mongoose.Schema;
 const solutionSchema = new Schema({
   question: { type: String, required: true },
   result: { type: Schema.Types.Mixed, required: true },
-  createdAt: { type: Date, default: Date.now }
-});
+  steps: [String],
+  userId:{
+    type: mongoose.Schema.Types.ObjectId,
+    required: true,
+    ref: "User"
+  }
+}, { timestamps: true });
 
-const Solution = mongoose.model('Solution', solutionSchema);
-
-module.exports = Solution;
+module.exports = mongoose.model('Solution', solutionSchema);
